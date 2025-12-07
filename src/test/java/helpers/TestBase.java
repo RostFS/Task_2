@@ -8,6 +8,7 @@ import io.restassured.specification.RequestSpecification;
 import models.Order;
 import models.User;
 import models.UserCredentials;
+import org.junit.After;
 import org.junit.Before;
 
 import java.util.List;
@@ -21,6 +22,9 @@ public class TestBase {
     // БАЗОВАЯ спецификация, от неё будем делать КОПИИ
     protected RequestSpecification requestSpec;
 
+    // Токен текущего тестового пользователя (для удаления после теста)
+    protected String accessToken;
+
     @Before
     public void setup() {
         RestAssured.baseURI = Endpoints.BASE_URL;
@@ -28,9 +32,20 @@ public class TestBase {
         requestSpec = given()
                 .baseUri(Endpoints.BASE_URL)
                 .contentType(ContentType.JSON);
+
+        accessToken = null;
     }
 
-    // ---------- Пользователь ----------
+    @After
+    @Step("Очистка данных: удалить тестового пользователя, если он был создан")
+    public void tearDown() {
+        if (accessToken != null && !accessToken.isEmpty()) {
+            deleteUser(accessToken);
+            accessToken = null;
+        }
+    }
+
+    // ========== Пользователь ==========
 
     @Step("Создать случайного пользователя")
     protected User createRandomUser() {
@@ -63,11 +78,16 @@ public class TestBase {
         Response loginResponse = loginUser(creds);
 
         // 3. Берём accessToken из логина
-        return loginResponse.then()
+        String token = loginResponse.then()
                 .statusCode(200)
                 .body("accessToken", notNullValue())
                 .extract()
                 .path("accessToken");
+
+        // 4. Сохраняем токен для последующего удаления пользователя
+        this.accessToken = token;
+
+        return token;
     }
 
     @Step("Авторизовать пользователя")
@@ -79,7 +99,22 @@ public class TestBase {
                 .post(Endpoints.LOGIN);
     }
 
-    // ---------- Ингредиенты и заказы ----------
+    @Step("Удалить тестового пользователя")
+    protected void deleteUser(String token) {
+        if (token == null || token.isEmpty()) {
+            return;
+        }
+
+        // Эндпоинт удаления пользователя: /api/auth/user
+        given()
+                .spec(requestSpec)
+                .header("Authorization", token)
+                .when()
+                .delete(Endpoints.USER);
+        // Ответ проверять не обязательно — это служебный шаг очистки
+    }
+
+    // ========== Ингредиенты и заказы ==========
 
     @Step("Получить список id доступных ингредиентов")
     protected List<String> getRandomIngredientIds() {
@@ -102,7 +137,7 @@ public class TestBase {
 
         if (token != null && !token.isEmpty()) {
             spec.header("Authorization", token);
-            // если нужно по “решению” — можно так:
+            // при желании можно так:
             // spec.header("Authorization", "Bearer " + token);
         }
 
